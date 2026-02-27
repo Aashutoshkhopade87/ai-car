@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="mr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aashu AI Smart Car Chat</title>
+  <style>
+    :root {
+      --bg: #ece5dd;
+      --panel: #ffffff;
+      --primary: #075e54;
+      --accent: #25d366;
+      --user: #dcf8c6;
+      --ai: #ffffff;
+      --text: #1f2937;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: linear-gradient(135deg, #d9f3ea 0%, #eef2ff 100%);
+      color: var(--text);
+      height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 16px;
+    }
+
+    .app {
+      width: 100%;
+      max-width: 820px;
+      height: min(92vh, 820px);
+      background: var(--panel);
+      border-radius: 18px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.18);
+    }
+
+    .header {
+      background: var(--primary);
+      color: #fff;
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .header h1 {
+      font-size: 1.05rem;
+      margin: 0;
+      font-weight: 600;
+    }
+
+    .status {
+      font-size: 0.82rem;
+      opacity: 0.9;
+    }
+
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .message {
+      max-width: 80%;
+      padding: 10px 12px;
+      border-radius: 14px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      font-size: 0.96rem;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+
+    .message.user {
+      align-self: flex-end;
+      background: var(--user);
+      border-bottom-right-radius: 4px;
+    }
+
+    .message.ai {
+      align-self: flex-start;
+      background: var(--ai);
+      border-bottom-left-radius: 4px;
+    }
+
+    .meta {
+      margin-top: 4px;
+      display: block;
+      font-size: 0.72rem;
+      opacity: 0.7;
+    }
+
+    .composer {
+      padding: 12px;
+      border-top: 1px solid #e5e7eb;
+      background: #fff;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    #messageInput {
+      flex: 1;
+      border: 1px solid #cbd5e1;
+      border-radius: 999px;
+      padding: 12px 16px;
+      font-size: 0.95rem;
+      outline: none;
+    }
+
+    #messageInput:focus { border-color: #22c55e; }
+
+    #sendBtn {
+      border: none;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #fff;
+      min-width: 90px;
+      padding: 0 16px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    #micBtn {
+      border: none;
+      border-radius: 999px;
+      width: 46px;
+      height: 46px;
+      display: grid;
+      place-items: center;
+      background: #0ea5e9;
+      color: #fff;
+      font-size: 1.1rem;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    #micBtn.recording {
+      background: #ef4444;
+      animation: pulse 1s infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.08); }
+      100% { transform: scale(1); }
+    }
+
+    #sendBtn:disabled { opacity: 0.6; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <h1>🚗 आशू (Aashu) - AI Smart Car Live Chat</h1>
+      <span class="status" id="syncStatus">Connecting...</span>
+    </header>
+
+    <section class="messages" id="messages"></section>
+
+    <form class="composer" id="chatForm">
+      <button id="micBtn" type="button" title="Mic Input">🎤</button>
+      <input id="messageInput" type="text" placeholder="तुमचा मेसेज लिहा..." autocomplete="off" required />
+      <button id="sendBtn" type="submit">Send</button>
+    </form>
+  </main>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getDatabase, ref, push, onChildAdded, query, orderByChild, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+    // ===========================
+    // 1) Paste Firebase config here
+    // ===========================
+    // OR you can replace the whole object with: const firebaseConfig = YOUR_FIREBASE_CONFIG_HERE;
+    const firebaseConfig = {
+      apiKey: "YOUR_FIREBASE_API_KEY_HERE",
+      authDomain: "YOUR_FIREBASE_AUTH_DOMAIN_HERE",
+      databaseURL: "YOUR_FIREBASE_DATABASE_URL_HERE",
+      projectId: "YOUR_FIREBASE_PROJECT_ID_HERE",
+      storageBucket: "YOUR_FIREBASE_STORAGE_BUCKET_HERE",
+      messagingSenderId: "YOUR_FIREBASE_MESSAGING_SENDER_ID_HERE",
+      appId: "YOUR_FIREBASE_APP_ID_HERE"
+    };
+
+    // ===========================
+    // 2) Paste Gemini API key here
+    // ===========================
+    const GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE";
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    const messagesEl = document.getElementById("messages");
+    const statusEl = document.getElementById("syncStatus");
+    const formEl = document.getElementById("chatForm");
+    const inputEl = document.getElementById("messageInput");
+    const sendBtn = document.getElementById("sendBtn");
+    const micBtn = document.getElementById("micBtn");
+
+    const chatRef = query(ref(db, "aashuChat/messages"), orderByChild("createdAt"));
+    const spokenMessageIds = new Set();
+    const clientId = crypto.randomUUID();
+    let recognition;
+    let isRecording = false;
+
+    statusEl.textContent = "Live sync ready";
+
+    function formatTime(epochMillis) {
+      if (!epochMillis) return "";
+      return new Date(epochMillis).toLocaleTimeString("mr-IN", {
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+    }
+
+    function renderMessage(msg) {
+      const wrap = document.createElement("article");
+      wrap.className = `message ${msg.sender === "user" ? "user" : "ai"}`;
+      wrap.textContent = msg.text;
+
+      const meta = document.createElement("small");
+      meta.className = "meta";
+      meta.textContent = `${msg.sender === "user" ? "You" : "Aashu"} • ${formatTime(msg.createdAt)}`;
+      wrap.appendChild(meta);
+
+      messagesEl.appendChild(wrap);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function speakMarathi(text, messageId) {
+      if (!("speechSynthesis" in window)) return;
+      if (spokenMessageIds.has(messageId)) return;
+
+      spokenMessageIds.add(messageId);
+      window.speechSynthesis.cancel();
+
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = "mr-IN";
+      utter.rate = 1;
+      utter.pitch = 1;
+
+      const voices = speechSynthesis.getVoices();
+      const marathiOrHindiVoice = voices.find((v) => ["mr-IN", "hi-IN"].includes(v.lang));
+      if (marathiOrHindiVoice) utter.voice = marathiOrHindiVoice;
+
+      window.speechSynthesis.speak(utter);
+    }
+
+    onChildAdded(chatRef, (snapshot) => {
+      const msg = snapshot.val();
+      const id = snapshot.key;
+      renderMessage(msg);
+
+      if (msg.sender === "ai") {
+        speakMarathi(msg.text, id);
+      }
+    });
+
+    const SYSTEM_INSTRUCTION = `तू 'आशू' (Aashu) नावाची एक advanced AI आणि IoT-powered smart car आहेस.
+तुला B.Sc. Electronics final-year टीमने विकसित केले आहे: Aashutosh Khopade, Omkar, Suraj, आणि Shambhuraj.
+तुझे तांत्रिक तपशील: Wi-Fi वर चालतेस, NodeMCU ESP8266 वापरतेस, Blynk App ने नियंत्रित होतेस, आणि obstacle avoidance साठी Ultrasonic Sensor वापरतेस.
+जर user ने अगदी हाच मेसेज पाठवला:
+"आशू, प्रिन्सिपल सर आले आहेत, त्यांचं स्वागत कर!"
+तर तू अगदी हाच मजकूर जशास तसा reply कर:
+"नमस्कार प्रिन्सिपल सर! इलेक्ट्रॉनिक्स डिपार्टमेंट मध्ये आपले सहर्ष स्वागत आहे. माझं नाव 'आशू' आहे, आणि मी एक AI स्मार्ट कार आहे. मला आशुतोष खोपडे, ओंकार, सुरज आणि शंभूराज या टीमने मिळून डेव्हलप केले आहे. तुम्हाला आमच्या डिपार्टमेंटमध्ये बघून खूप छान वाटत आहे!"
+इतर सर्व प्रश्नांना Marathi मध्ये smart, respectful आणि concise उत्तर दे.`;
+
+    async function askGemini(userText) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+      const requestBody = {
+        system_instruction: {
+          parts: [{ text: SYSTEM_INSTRUCTION }]
+        },
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: userText }]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.6,
+          maxOutputTokens: 300
+        }
+      };
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Gemini API failed: ${res.status} ${errText}`);
+      }
+
+      const data = await res.json();
+      const answer = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      return answer || "क्षमस्व, मला उत्तर तयार करता आलं नाही. पुन्हा प्रयत्न करा.";
+    }
+
+    async function pushMessage(sender, text) {
+      await push(ref(db, "aashuChat/messages"), {
+        sender,
+        text,
+        createdAt: Date.now(),
+        originClient: clientId,
+        serverTime: serverTimestamp()
+      });
+    }
+
+    formEl.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const text = inputEl.value.trim();
+      if (!text) return;
+
+      inputEl.value = "";
+      sendBtn.disabled = true;
+      statusEl.textContent = "Sending...";
+
+      try {
+        await pushMessage("user", text);
+        statusEl.textContent = "Thinking...";
+
+        const aiReply = await askGemini(text);
+        await pushMessage("ai", aiReply);
+
+        statusEl.textContent = "Live sync ready";
+      } catch (error) {
+        console.error(error);
+        const fallback = "क्षमस्व, API कॉलमध्ये त्रुटी आली. कृपया API key/config तपासा.";
+        await pushMessage("ai", fallback);
+        statusEl.textContent = "Error occurred";
+      } finally {
+        sendBtn.disabled = false;
+        inputEl.focus();
+      }
+    });
+
+    // Some browsers load voices asynchronously.
+    speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      recognition = new SpeechRecognition();
+      recognition.lang = "mr-IN";
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => {
+        isRecording = true;
+        micBtn.classList.add("recording");
+        statusEl.textContent = "Listening...";
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results?.[0]?.[0]?.transcript?.trim() || "";
+        if (transcript) {
+          inputEl.value = transcript;
+          formEl.requestSubmit();
+        }
+      };
+
+      recognition.onerror = () => {
+        statusEl.textContent = "Mic error";
+      };
+
+      recognition.onend = () => {
+        isRecording = false;
+        micBtn.classList.remove("recording");
+        if (statusEl.textContent === "Listening...") {
+          statusEl.textContent = "Live sync ready";
+        }
+      };
+    } else {
+      micBtn.disabled = true;
+      micBtn.title = "Speech recognition not supported in this browser";
+      statusEl.textContent = "Live sync ready (Mic unsupported)";
+    }
+
+    micBtn.addEventListener("click", () => {
+      if (!recognition) return;
+      if (isRecording) {
+        recognition.stop();
+      } else {
+        recognition.start();
+      }
+    });
+  </script>
+</body>
+</html>
